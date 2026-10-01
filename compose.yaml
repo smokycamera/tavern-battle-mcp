@@ -1,0 +1,50 @@
+services:
+  mcp:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      TB_MCP_HOST: 0.0.0.0
+      TB_MCP_PORT: "8766"
+      TB_MCP_TOKEN: ${TB_MCP_TOKEN:?Set a random TB_MCP_TOKEN in .env}
+      TB_MCP_ORIGINS: ${TB_MCP_ORIGINS:?Set the TT page origin in .env}
+    ports:
+      - "127.0.0.1:8766:8766"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8766/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      mcp:
+        condition: service_healthy
+    environment:
+      MCP_DOMAIN: ${MCP_DOMAIN:?Set a domain pointing to this VPS}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+volumes:
+  caddy_data:
+  caddy_config:

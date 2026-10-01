@@ -1,0 +1,153 @@
+diff --git a/extension/src/index.ts b/extension/src/index.ts
+index 83702bf..ee1f709 100644
+--- a/extension/src/index.ts
++++ b/extension/src/index.ts
+@@ -100,11 +100,17 @@ async function startRuntime() {
+   };
+   const chooseFile = () => {
+     const input = document.createElement('input'); input.type = 'file'; input.accept = '.json,application/json';
++    input.setAttribute('aria-label', '导入战阵存档 JSON 文件');
+     input.addEventListener('change', async () => {
+       const file = input.files?.[0]; if (!file) return;
++      input.disabled = true;
+       try { showChange(await management.previewFile(await file.text())); }
+       catch (error) { panel.showStatus(String(error), [{ label: '返回存档管理', run: showManagement }], true); }
+-    }, { once: true }); input.click();
++      finally { input.disabled = false; }
++    }, { once: true });
++    panel.showStatus('选择 JSON 存档文件，读取后先预览变更，再确认导入。', [{ label: '返回存档管理', run: showManagement }], true);
++    document.querySelector('#tavern-battle-native-panel .tb-status')?.append(input);
++    input.click();
+   };
+   function showManagement() {
+     panel.showStatus('存档操作只针对当前聊天。导入、清空和回退均先预览、备份，再核实保存结果。', [
+diff --git a/panel/src/main.ts b/panel/src/main.ts
+index 17868b0..8b6b13e 100644
+--- a/panel/src/main.ts
++++ b/panel/src/main.ts
+@@ -1,4 +1,7 @@
+ import { abilityUsed } from '../../engine/src/ability-state.js';
++import { McpPanelBridge } from './mcp-bridge.js';
++import { PlayerPreparation } from './player-preparation.js';
++import { narrativeMapSources } from './narrative-map-source.js';
+ import { assertBattleCapacity } from '../../engine/src/battle-limits.js';
+ import { newBattleCommanderProfiles } from '../../engine/src/commander-profile.js';
+ import { instanceVarianceLabel } from '../../engine/src/instance-variance.js';
+@@ -133,6 +136,8 @@ const promptDrafts = new Map<string, string>();
+ const worldbookDrafts = new Map<string, string>();
+ const customWorldbookDrafts = new Map<string, WorldbookDraft>();
+ let worldbookDeleting: string | undefined;
++const playerPreparation = new PlayerPreparation();
++let mcpBridge: McpPanelBridge | undefined;
+ let workspaceTab: WorkspaceTab = 'battle';
+ let workspaceNamespace = adapter.namespace();
+ let builderEditDraft: UnitDraft | undefined;
+@@ -1008,6 +1013,7 @@ function renderBattlePreparation(): string {
+     ${renderContextStatus()}${llm.error ? '<p role="alert">'+esc(llm.error)+'</p>' : ''}${llm.settings.enabled ? '<p class="sub">开战前将由普通 LLM 读取最近所选层数的正文，选择指挥与场景配置。可在设置中关闭。</p>' : ''}<div class="row"><button class="primary" data-action="${mode === 'mass' ? 'mass-start' : 'small-start'}" ${ready ? '' : 'disabled'}>开始交战</button><button data-action="workspace-tab" data-tab="units">${ready ? '查看队伍' : '集结队伍'}</button><button data-action="workspace-tab" data-tab="inventory">整理配装</button></div>
+     ${state.roster.every((u) => u.rulesVersion === 'v2') ? `<details class="preparation-options" data-detail-id="preparation-options"><summary>任务设置 · ${state.mapLayout === 'indoor' ? '室内' : '野战'} / ${state.objectiveMode === 'escort' ? '护送' : state.objectiveMode === 'intercept' ? '拦截' : state.objectiveMode === 'siege' ? '攻城' : state.objectiveMode === 'control' ? '占旗' : state.objectiveMode === 'annihilation' ? '歼灭' : plannedFieldTags().includes('siege') ? '攻城' : '歼灭'}</summary><div class="row"><label>地形<select data-role="context-field">${Object.entries(FIELD_LABELS).filter(([id])=>id!=='night').map(([id,label])=>`<option value="${id}" ${(state.field||'plains')===id?'selected':''}>${label}</option>`).join('')}</select></label><label>光照<select data-role="context-lighting"><option value="day" ${state.lighting==='day'?'selected':''}>日间</option><option value="night" ${state.lighting==='night'?'selected':''}>夜间</option></select></label><label>地图<select data-role="map-layout"><option value="standard" ${state.mapLayout !== 'indoor' ? 'selected' : ''}>标准野战</option><option value="indoor" ${state.mapLayout === 'indoor' ? 'selected' : ''}>紧凑室内</option></select></label><label>目标<select data-role="objective-mode"><option value="auto" ${state.objectiveMode === 'auto' ? 'selected' : ''}>按环境：野战歼灭／攻城夺点</option><option value="annihilation" ${state.objectiveMode === 'annihilation' ? 'selected' : ''}>歼灭战</option><option value="control" ${state.objectiveMode === 'control' ? 'selected' : ''}>占旗战</option><option value="siege" ${state.objectiveMode === 'siege' ? 'selected' : ''}>攻城战</option><option value="escort" ${state.objectiveMode === 'escort' ? 'selected' : ''}>我方护送</option><option value="intercept" ${state.objectiveMode === 'intercept' ? 'selected' : ''}>拦截敌方护送</option></select></label><label>攻城角色<select data-role="siege-attacker"><option value="ally" ${state.siegeAttacker === 'ally' ? 'selected' : ''}>我方进攻</option><option value="enemy" ${state.siegeAttacker === 'enemy' ? 'selected' : ''}>我方防守</option></select></label></div><p>野战默认歼灭；占旗战任一方连续控制旗点2个完整回合获胜。攻城胜利点在守方纵深，攻方连续控制2个完整回合获胜，守方坚持到60回合获胜。我方护送沿用主控或首个我方单位；拦截以首个敌方单位为护送对象。双方规则相同：抵达出口则护送方胜，目标被消灭、撤离或逾期未抵达则拦截方胜。</p></details>` : ''}
+     ${allies.length ? `<div class="preparation-roster">${allies.slice(0, 8).map((u) => `<span><b>${esc(u.name)}</b><small>${u.scale === 'hero' ? '生命' : '人数'} ${u.hp}/${u.base.hpMax}</small></span>`).join('')}${allies.length > 8 ? `<span>另有${allies.length - 8}支单位</span>` : ''}</div>` : ''}
++    ${playerPreparation.render(playerPreparationScope())}
+   </section>`;
+ }
+ function renderEmbeddedWorldbookSettings(): string {
+@@ -1016,7 +1022,7 @@ function renderEmbeddedWorldbookSettings(): string {
+ }
+ function renderWorkspaceSettings(): string {
+   const saved = controller.snapshot(), view = llmSettingsView();
+-  return `${renderLlmSettings(view.settings, view.error ?? llmDiagnostic)}${renderEmbeddedWorldbookSettings()}${promptScopeControls(saved.promptSettings, narrativeProjectionDetails(saved, adapter.recentPromptText?.() ?? ''), (saved.storage ?? []).filter(visibleUnitRecord))}${renderPromptSettings(saved.promptSettings, promptDrafts)}<section><h2>显示与操作</h2><p>战场形式由参战队伍确定，环境沿用剧情声明。</p><button data-action="theme-toggle">切换深浅主题</button></section>
++  return `${mcpBridge?.render() ?? ''}${renderLlmSettings(view.settings, view.error ?? llmDiagnostic)}${renderEmbeddedWorldbookSettings()}${promptScopeControls(saved.promptSettings, narrativeProjectionDetails(saved, adapter.recentPromptText?.() ?? ''), (saved.storage ?? []).filter(visibleUnitRecord))}${renderPromptSettings(saved.promptSettings, promptDrafts)}<section><h2>显示与操作</h2><p>战场形式由参战队伍确定，环境沿用剧情声明。</p><button data-action="theme-toggle">切换深浅主题</button></section>
+     <section><h2>保存与恢复</h2><p>${state.saveReceipt?.status === 'local-only' ? '目前仅确认本地副本，酒馆尚未确认保存。' : '单位档案和战报随当前聊天保存。保存失败时会在顶部显示。'}</p><button data-action="save-retry">核实并重试保存</button>${controller.migrationReview() ? '' : renderMigrationReview()}</section>
+     <details class="workspace-diagnostics"><summary>版本与运行信息</summary><p>战斗结果由本设备计算。伤害、命中和状态的详细过程可在战报中查看。</p><p>${controller.capabilities.injection ? '已支持在续写剧情时参考当前战斗进度。' : '当前酒馆暂不支持自动提供剧情参考。'}</p></details>`;
+ }
+@@ -2634,18 +2640,33 @@ async function resolveMassRound(expectedRound: number, expectedSeed?: string): P
+ }
+ 
+ 
++function playerPreparationScope(): string {
++  return JSON.stringify([adapter.identity(), adapter.namespace(), state.mode, state.roster, state.field, state.lighting, state.mapLayout, state.objectiveMode, state.siegeAttacker, state.protagonistId]);
++}
++function playerPreparationInputs() {
++  const ids = narrativeIds({ ...controller.snapshot(), storage: state.storage });
++  return { scope: playerPreparationScope(), roster: state.roster, protagonistId: state.protagonistId,
++    setup: { mode: effectiveMode(), field: state.field || 'plains', lighting: state.lighting, mapLayout: state.mapLayout, objectiveMode: state.objectiveMode, siegeAttacker: state.siegeAttacker },
++    unitBindings: Object.fromEntries(state.roster.map(u => [ids.publicId(u.id), u.id])),
++    sources: narrativeMapSources(recentContextMessages().slice(-llmSettingsView().settings.windowSize).map(m => ({ ...m, text: m.text.slice(-6000) }))).sources };
++}
++function applyPlayerPreparation(input: Record<string, unknown>): void {
++  if (currentBattle()) throw Error('请先结束并收兵；准备配置只用于下一场');
++  if (runtime.canWrite && !runtime.canWrite()) throw Error(runtime.writeBlockReason?.() ?? '档案尚未就绪');
++  playerPreparation.apply(input, playerPreparationInputs()); render('view');
++}
+ async function startContextualBattle(requestedMode:'small'|'mass'):Promise<void> {
+   if (state.roster.some(u=>u.rulesVersion==='v2'&&u.damageModel!=='wounds-v2')) {
+     controller.reviewBalanceUpgrade(); restore(); render(); return;
+   }
++  let context:LlmEncounterContext|undefined = playerPreparation.resolve(playerPreparationScope());
+   prepareRosterForBattle();
+   if (!rosterHasBothSides()) throw Error('开战前必须同时有我方与敌方单位');
+-  let context:LlmEncounterContext|undefined;
+   const v2=state.roster.every(u=>u.rulesVersion==='v2'), settings=llmSettingsView().settings;
+   const seed = randomSeed();
+   let preparedField: ReturnType<typeof generatedLayeredField> | undefined;
+   const setup={mode:requestedMode,field:state.field||'plains',lighting:state.lighting,mapLayout:state.mapLayout,objectiveMode:state.objectiveMode,siegeAttacker:state.siegeAttacker};
+-  if(settings.enabled && v2) {
++  if(settings.enabled && v2 && !context) {
+     const namespace=adapter.namespace(), identity=adapter.identity(), revision=state.factRevision,
+       generation=controller.inventoryContext(), settingsKey=JSON.stringify(settings), rosterKey=JSON.stringify(state.roster), setupKey=JSON.stringify([state.mode,state.field,state.lighting,state.mapLayout,state.objectiveMode,state.siegeAttacker,state.protagonistId]);
+     const messages=recentContextMessages(), messagesKey=JSON.stringify(messages);
+@@ -2674,6 +2695,7 @@ async function startContextualBattle(requestedMode:'small'|'mass'):Promise<void>
+     mode=manual.mode;state.mapLayout=manual.mapLayout;
+   }
+   if(mode==='mass')await startMassBattle(context);else await startSmallBattle(context, preparedField, seed);
++  playerPreparation.clear();
+ }
+ 
+ async function startSmallBattle(context?:LlmEncounterContext, preparedField?: ReturnType<typeof generatedLayeredField>, seed = randomSeed()):Promise<void> {
+@@ -2739,6 +2761,11 @@ async function startMassBattle(context?:LlmEncounterContext):Promise<void> {
+ }
+ 
+ const actions: Record<string, (el: HTMLElement) => void | Promise<void>> = {
++  'player-preparation-apply': () => applyPlayerPreparation({
++    ...(playerPreparation.commanders.trim() ? { commanders: JSON.parse(playerPreparation.commanders) } : {}),
++    ...(playerPreparation.battlefield.trim() ? { battlefield: JSON.parse(playerPreparation.battlefield) } : {}),
++  }),
++  'player-preparation-clear': () => { playerPreparation.clear(); render('view'); },
+   'llm-models': async (button) => {
+     const settings = readLlmSettings(), key = llmConnectionKey(settings);
+     button.setAttribute('disabled', '');
+@@ -3525,6 +3552,11 @@ document.addEventListener('input', e => {
+ });
+ document.addEventListener('input', (e) => {
+   if (!(e.target instanceof Element)) return;
++  if (e.target instanceof HTMLTextAreaElement && e.target.dataset.playerPreparation) {
++    const field = e.target.dataset.playerPreparation;
++    if (field === 'commanders' || field === 'battlefield') playerPreparation[field] = e.target.value;
++    return;
++  }
+   if (e.target instanceof HTMLTextAreaElement && e.target.dataset.role === 'prompt-template') { promptDrafts.set(e.target.dataset.section!, e.target.value); return; }
+   if (e.target instanceof HTMLElement && e.target.dataset.role === 'worldbook-field') {
+     customWorldbookDrafts.set(e.target.dataset.entry!, captureWorldbookDraft(e.target.closest<HTMLElement>('[data-worldbook-entry]')!));
+@@ -3733,6 +3765,23 @@ document.addEventListener('change', e => {
+   void panelTask(() => handleChange(e));
+ });
+ 
++// The bridge is inert until explicitly paired. It operates the same player UI.
++mcpBridge = new McpPanelBridge({
++  roots: () => {
++    const app = document.querySelector<HTMLElement>('#app')!;
++    if (!runtime.native || window.parent === window) return [app];
++    const shell = window.parent.document.getElementById('tavern-battle-native-panel');
++    const entry = window.parent.document.getElementById('tavern-battle-native-entry');
++    return [...(entry ? [entry] : []), ...(shell ? [shell] : []), ...(!shell?.hidden && !shell?.querySelector('main')?.hidden ? [app] : [])];
++  },
++  context: () => JSON.stringify([adapter.identity(), adapter.namespace(), controller.inventoryContext()]),
++  busy: () => uiBusy || llmContext.busy || fullAuto.running || !!aiScanDialog?.busy || runtime.native && !!window.parent.document.querySelector('#tavern-battle-native-panel .tb-status button:disabled, #tavern-battle-native-panel .tb-status input:disabled'),
++  help: () => playerPreparation.help(currentBattle() ? undefined : playerPreparationInputs()),
++  prepare: applyPlayerPreparation,
++}, () => { if (workspaceTab === 'settings') render('view'); });
++const stopMcpBridge = mcpBridge.install();
++window.addEventListener('pagehide', event => { if (!event.persisted) stopMcpBridge(); });
++
+ // 聊天/角色卡切换：重新同步存档（事件 + 轮询双保险都在适配层内处理）
+ const stopControllerView = controller.listen((_saved: NarrativeSave, receipt?: SaveReceipt) => {
+   restore();

@@ -1,0 +1,40 @@
+name: MCP checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+  container:
+    runs-on: ubuntu-latest
+    env:
+      MCP_DOMAIN: battle.example.com
+      TB_MCP_TOKEN: ci-only-test-token-with-more-than-24-characters
+      TB_MCP_ORIGINS: https://tauri.localhost
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config --quiet
+      - run: docker compose build mcp
+      - name: Validate HTTPS proxy configuration
+        run: docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile
+      - name: Run container and check authentication
+        run: |
+          docker compose up -d --wait mcp
+          curl --fail http://127.0.0.1:8766/health
+          test "$(curl --silent -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8766/mcp)" = 401
+          docker compose exec -T mcp node --input-type=module -e "const r=await fetch('http://127.0.0.1:8766/bridge/connect',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+process.env.TB_MCP_TOKEN},body:JSON.stringify({label:'ci'})});if(!r.ok||!(await r.json()).sessionId)process.exit(1)"
+      - if: always()
+        run: docker compose down
