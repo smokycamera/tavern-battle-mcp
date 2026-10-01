@@ -1,5 +1,7 @@
 # Tavern Battle MCP · 通用战斗系统
 
+**0.2.0 已提供 16 个工具。** 一条指令行动/开战、固定开局预览和隔离试战见 [游戏操作指南](GAMEPLAY.md)。
+
 让 ChatGPT / Dots 和其他 MCP 客户端，以玩家视角操作手机或电脑上的 SillyTavern / TauriTavern 战阵插件。
 
 本仓库是独立的 **MCP 服务端**，可放在 Linux VPS 上长期运行。手机 TT 的游戏本体继续运行在手机；个人电脑可以关闭。手机须保持战阵页面运行和连接，切到后台或锁屏后能否继续取决于手机系统。
@@ -73,7 +75,7 @@ docker compose up -d --build mcp
 
 - Streamable HTTP 地址：`https://battle.your-domain.com/mcp`
 - 请求头：`Authorization: Bearer <TB_MCP_TOKEN>`
-- 先调用 `battle_sessions`，再 `battle_observe`。配对后能列出手机面板，就代表连接成立。
+- 优先调用 `battle_state`；多个面板时先用 `battle_sessions` 选择。原界面流程仍可用 `battle_observe`。配对后能列出手机面板，就代表连接成立。
 
 本地 stdio 客户端也可以连接同一台 VPS，而不创建另一份服务：
 
@@ -99,7 +101,7 @@ Dots 可以使用账户已安装、启用且受支持的插件。[官方说明](
 
    这条命令进入已经运行的容器，用相同密钥连接相同服务，不另占端口。隧道通过标准输入/输出调用它。
 3. 按隧道文档运行 `tunnel-client doctor` 和 `tunnel-client run`，保持运行。
-4. 在 ChatGPT 开发者模式的 **Plugins → ＋ → Connection → Tunnel** 中选择隧道，建立个人插件，检查能发现八个工具。然后让 Dot 使用这个已启用的插件。[官方连接步骤](https://developers.openai.com/plugins/deploy/connect-chatgpt)。
+4. 在 ChatGPT 开发者模式的 **Plugins → ＋ → Connection → Tunnel** 中选择隧道，建立个人插件，检查能发现 16 个工具。然后让 Dot 使用这个已启用的插件。[官方连接步骤](https://developers.openai.com/plugins/deploy/connect-chatgpt)。
 
 建议给 Dot 的第一条指令：
 
@@ -119,10 +121,18 @@ Dots 可以使用账户已安装、启用且受支持的插件。[官方说明](
 | `battle_upload` | 向文件输入框放入用户提供的 JSON；继续走存档预览/确认 |
 | `battle_help` | 获取指挥风格、能力、地图格式、战前公开单位代号和正文依据 |
 | `battle_prepare` | 校验下一场指挥与地图，不直接开战 |
+| `battle_state` | 玩家可见的游戏状态、坐标、每格单位 ID 与高亮标记 |
+| `battle_act` | 一次执行同一单位的 1—8 个动作 |
+| `battle_plan` | 完整准备、统一校验与固定开局预览 |
+| `battle_start` | 一次配置并开战，或确认预览 ID |
+| `battle_orders` | 下达会战军令并结算 |
+| `battle_auto` | 立即启动或暂停全自动 |
+| `battle_recover` | 战后恢复并可重新加入参战 |
+| `battle_sandbox` | 隔离试战、满状态重开与独立战报 |
 
-游戏行动、会战军令、队伍/主控/指挥、配装、技能、战报、世界书、设置、存档管理等通过可见界面操作。默认不连接；不开放引擎后门，不读取隐藏敌人、原始快照、随机数或密钥。按键仍受回合、行动点、技能消耗、冷却、视野和存档规则约束。
+游戏状态、连续行动、军令、自动/暂停、完整准备/固定预览、一键开战、战后恢复与隔离试战可使用新游戏工具。原界面工具继续用于所有原有页面。默认不连接；不开放引擎后门，不读取隐藏敌人、原始快照、随机数或密钥。按键仍受回合、行动点、技能消耗、冷却、视野和存档规则约束。
 
-每次操作须使用最近 `battle_observe` 返回的 `viewId` / `controlId`。聊天、存档修订或界面改变后旧指令失效；超时写操作不会自动重放。`dispatched` 只代表已发出操作，是否成功以新界面、`feedback`、`saveStatus` 为准。
+原界面操作须使用最近 `battle_observe` 返回的 `viewId` / `controlId`。聊天、存档修订或界面改变后旧指令失效；超时写操作不会自动重放。`dispatched` 只代表已发出操作，是否成功以新界面、`feedback`、`saveStatus` 为准。
 
 ## 战前配置示例
 

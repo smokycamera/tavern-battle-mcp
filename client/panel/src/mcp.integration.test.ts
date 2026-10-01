@@ -33,6 +33,10 @@ it('plays through production buttons, honors player fog and chat changes, and st
   };
   const click = (action: string) => call('click', c => c.action === action);
   const before = JSON.stringify(f.service.snapshot());
+  const positions = ui.observe({ limit: 500 });
+  expect(positions.activeUnit).toMatchObject({ id: 'u0', pos: 79, cell: 'C12' });
+  expect(positions.controls.find(c => c.action === 'grid-cell' && c.cell === '79' && c.unitIds)).toMatchObject({ unitIds: ['u0'], acting: true, selected: true, coordinate: 'C12' });
+  expect(positions.controls.flatMap(c => c.unitIds ?? [])).not.toContain('u1');
   expect(JSON.stringify(ui.observe({ limit: 500 }))).not.toContain('秘密敌军');
   expect(JSON.stringify(f.service.snapshot())).toBe(before);
   await click('grid-endturn');

@@ -6,6 +6,7 @@ export interface McpUiOptions {
   busy(): boolean;
   help(): unknown;
   prepare(input: Record<string, unknown>): unknown;
+  game?: { handle(operation: string, args: Record<string, unknown>): Promise<Record<string, unknown>> };
 }
 export interface McpCommand {
   id: string;
@@ -74,6 +75,7 @@ export class McpPlayerUi {
     const data = Object.fromEntries(dataKeys.flatMap(key => el.dataset[key] === undefined ? [] : [[key, el.dataset[key]]])) as Partial<Record<typeof dataKeys[number], string>>;
     return {
       controlId: this.id(el), tag, label: label.slice(0, 600), ...data,
+      ...(el.dataset.unitIds !== undefined ? { unitIds: JSON.parse(el.dataset.unitIds) as string[], acting: el.dataset.acting === 'true', selected: el.dataset.selected === 'true', coordinate: el.dataset.coordinate } : {}),
       ...(el.title ? { title: el.title.slice(0, 1200) } : {}),
       disabled: this.disabled(el),
       ...(tag === 'input' ? { type: input.type, readOnly: input.readOnly, ...(sensitive ? { value: '[redacted]' } : { value: input.value }), ...(['checkbox','radio'].includes(input.type) ? { checked: input.checked } : {}), ...(input.min ? { min: input.min } : {}), ...(input.max ? { max: input.max } : {}), ...(input.step ? { step: input.step } : {}) } : {}),
@@ -89,6 +91,8 @@ export class McpPlayerUi {
     const liveIds = new Set(all.map(el => el.controlId));
     for (const id of this.elements.keys()) if (!liveIds.has(id)) this.elements.delete(id);
     const text = roots.map(root => this.text(root)).filter(Boolean).join('\n');
+    const current = roots.flatMap(root => [...root.querySelectorAll<HTMLElement>('[data-current-unit]')]).find(el => this.visible(el));
+    const activeUnit = current ? { id: current.dataset.currentUnit, pos: Number(current.dataset.currentPosition), cell: current.dataset.currentCoordinate } : undefined;
     const panelVisible = roots.some(root => root.id === 'app');
     const toast = document.querySelector<HTMLElement>('#toast');
     const feedback = panelVisible && toast && this.visible(toast) ? toast.textContent ?? '' : '';
@@ -99,7 +103,7 @@ export class McpPlayerUi {
     const offset = Number.isInteger(args.offset) ? Math.max(0, Number(args.offset)) : 0;
     const limit = Number.isInteger(args.limit) ? Math.max(1, Math.min(500, Number(args.limit))) : 200;
     const textOffset = Number.isInteger(args.textOffset) ? Math.max(0, Number(args.textOffset)) : 0;
-    return { viewId: this.viewId, perspective: 'player', busy, saveStatus, feedback, text: text.slice(textOffset, textOffset + 20000), textLength: text.length,
+    return { viewId: this.viewId, perspective: 'player', activeUnit, busy, saveStatus, feedback, text: text.slice(textOffset, textOffset + 20000), textLength: text.length,
       textOffset, nextTextOffset: textOffset + 20000 < text.length ? textOffset + 20000 : null,
       controls: all.slice(offset, offset + limit), totalControls: all.length, offset, nextOffset: offset + limit < all.length ? offset + limit : null };
   }
@@ -191,13 +195,19 @@ export class McpPlayerUi {
     this.running = true;
     try {
       if (Date.now() > command.expiresAt) throw Error('操作已过期，未执行');
+      if (command.operation.startsWith('game_')) {
+        if (!this.options.game) throw Error('此面板尚不支持游戏接口，请更新战斗插件的 test 分支');
+        return await this.options.game.handle(command.operation, command.args);
+      }
       if (command.operation === 'observe') return this.observe(command.args);
       if (command.operation === 'help') return { rules: this.options.help() };
       this.guard(command.args, command.operation);
       const context = this.options.context();
+      let backgroundControl = false;
       if (command.operation === 'prepare') this.options.prepare(command.args);
       else {
         const el = this.target(command.args);
+        backgroundControl = el.dataset.role === 'full-auto-battle';
         if (command.operation === 'click') this.click(el);
         else if (command.operation === 'fill') this.fill(el, command.args.value);
         else if (command.operation === 'upload') this.upload(el, command.args);
@@ -205,7 +215,7 @@ export class McpPlayerUi {
         else throw Error('未知操作');
       }
       const deadline = Math.min(Date.now() + 12000, command.expiresAt - 1000);
-      do { await delay(30); } while (this.options.busy() && Date.now() < deadline);
+      do { await delay(30); } while (!backgroundControl && this.options.busy() && Date.now() < deadline);
       // Context includes archive revision. A normal write can change it: report the latest view,
       // but never perform a second action against that new context.
       return { dispatched: true, contextChanged: context !== this.options.context(), ...this.observe() };

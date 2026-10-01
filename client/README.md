@@ -9,8 +9,8 @@
 来源：[sillytavern-general-battle-system](https://github.com/smokycamera/sillytavern-general-battle-system)，GPL-3.0-only。
 
 - 集成补丁的基础提交：`085027735f3a1b4d4d0c2f0ea556de1ae1a8101e`。
-- `integration.patch`：原生宿主和 `panel/src/main.ts` 接线改动。
-- `panel/src/`：新增桥接、可见界面操作、下一场指挥/地图配置及其测试源文件。
+- `integration.patch`：原生宿主、主面板、档案恢复和战场占位信息改动。
+- `panel/src/`：桥接、游戏 API、固定开局、隔离试战、恢复、准备与相关测试源文件。
 - 服务端源文件在本仓库根目录。
 
 开发者可在上述基础提交上应用补丁并复制新增文件：
