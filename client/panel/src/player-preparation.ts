@@ -1,5 +1,5 @@
 import { COMMANDER_ABILITIES, COMMANDER_STYLES, normalizeCommanderProfiles } from '../../engine/src/commander-profile.js';
-import { BATTLEFIELD_PLAN_PROMPT, normalizeBattlefieldPlan, requireApiLandmarks } from '../../engine/src/small/battlefield-plan.js';
+import { BATTLEFIELD_PLAN_PROMPT, normalizeBattlefieldPlan, LANDMARK_KINDS, LANDMARK_ANCHORS } from '../../engine/src/small/battlefield-plan.js';
 import { validateSceneIntentEvidence, type NarrativeSource } from '../../engine/src/small/scene-intent.js';
 import { generatedLayeredField } from '../../engine/src/small/layered-generator.js';
 import type { Combatant } from '../../engine/src/types.js';
@@ -37,13 +37,14 @@ export class PlayerPreparation {
     this.sync(input.scope);
     if (value.clear === true) { this.clear(); return; }
     if (!input.roster.length || input.roster.some(u => u.rulesVersion !== 'v2')) throw Error('指挥与地图准备需要 V2 单位');
-    if (value.commanders === undefined && value.battlefield === undefined) throw Error('请提供 commanders 或 battlefield，或 clear:true');
     const context: LlmEncounterContext = encounterRequest({ roster: input.roster, setup: input.setup,
       settings: { ...normalizeContextSettings(), enemy: 'manual', scene: 'manual' }, messages: [], windowSize: 0, roles: [], phase: 'preparation' }).base;
     if (value.commanders !== undefined) {
       if (!object(value.commanders) || Object.keys(value.commanders).some(k => !['ally','enemy'].includes(k))) throw Error('commanders 仅接受 ally、enemy');
       for (const [side, p] of Object.entries(value.commanders)) {
-        if (!object(p) || !(COMMANDER_ABILITIES as readonly unknown[]).includes(p.ability) || !(COMMANDER_STYLES as readonly unknown[]).includes(p.style)) throw Error(side + ' 指挥能力或风格无效');
+        if (!object(p)) throw Error(`commanders.${side} 须为包含 ability 和 style 的对象`);
+        if (!(COMMANDER_ABILITIES as readonly unknown[]).includes(p.ability)) throw Error(`commanders.${side}.ability ${p.ability === undefined ? '缺失' : '无效'}；可选：${COMMANDER_ABILITIES.join('、')}`);
+        if (!(COMMANDER_STYLES as readonly unknown[]).includes(p.style)) throw Error(`commanders.${side}.style ${p.style === undefined ? '缺失' : '无效'}；可选：${COMMANDER_STYLES.join('、')}`);
         if (p.preferences !== undefined && (!object(p.preferences) || Object.keys(p.preferences).length > 3 || Object.entries(p.preferences).some(([k,v]) => !['reserve','risk','counterattack','cohesion','breach'].includes(k) || !Number.isInteger(v) || Number(v) < 0 || Number(v) > 4))) throw Error('指挥偏好最多3项，每项为0—4整数');
       }
       context.commanders = normalizeCommanderProfiles(value.commanders);
@@ -53,9 +54,21 @@ export class PlayerPreparation {
     if (value.battlefield !== undefined) {
       if (context.mode !== 'small') throw Error('会战使用阵位规则，详细格子地图只用于小战');
       if (!object(value.battlefield)) throw Error('battlefield 必须为对象');
-      const normalized = normalizeBattlefieldPlan(value.battlefield);
-      if (normalized.notes.length) throw Error(normalized.notes.join('；'));
-      requireApiLandmarks(normalized.plan);
+      const raw = value.battlefield;
+      if (raw.landmarks !== undefined) {
+        if (!Array.isArray(raw.landmarks) || raw.landmarks.length > 5) throw Error('battlefield.landmarks 须为最多5个地标的数组');
+        raw.landmarks.forEach((mark: unknown, index: number) => {
+          const path = `battlefield.landmarks[${index}]`;
+          if (!object(mark)) throw Error(path + ' 须为对象，包含 kind 和 anchor');
+          if (!(LANDMARK_KINDS as readonly unknown[]).includes(mark.kind)) throw Error(`${path}.kind ${mark.kind === undefined ? '缺失' : '无效'}；可选：${LANDMARK_KINDS.join('、')}`);
+          if (!(LANDMARK_ANCHORS as readonly unknown[]).includes(mark.anchor)) throw Error(`${path}.anchor ${mark.anchor === undefined ? '缺失' : '无效'}；可选：${LANDMARK_ANCHORS.join('、')}`);
+        });
+      }
+      let normalized: ReturnType<typeof normalizeBattlefieldPlan>;
+      try { normalized = normalizeBattlefieldPlan(value.battlefield); }
+      catch (error) { throw Error('battlefield.intent 参数无效：' + (error instanceof Error ? error.message : String(error))); }
+      if (normalized.notes.length) throw Error('battlefield 参数无效：' + normalized.notes.map(note => note.replace(/，采用.*|，默认.*|，超出项未采用/g, '')).join('；'));
+      if (!normalized.plan) throw Error('battlefield 参数格式无效');
       if (normalized.plan.intent) validateSceneIntentEvidence(normalized.plan.intent, input.sources, Object.keys(input.unitBindings));
       context.battlefieldPlan = normalized.plan; context.unitBindings = input.unitBindings;
       const tags = [...new Set([context.field, ...(context.objectiveMode === 'siege' ? ['siege'] : []), ...(context.mapLayout === 'indoor' ? ['indoor'] : [])])];

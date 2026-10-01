@@ -21,7 +21,7 @@ test('official MCP HTTP client discovers and calls the live panel bridge', async
   await client.connect(new StreamableHTTPClientTransport(new URL(f.base + '/mcp'), { requestInit: { headers: { Authorization: 'Bearer ' + token } } }));
   t.after(() => client.close());
   const list = await client.listTools();
-  assert.equal(list.tools.length, 8);
+  assert.equal(list.tools.length, 16);
   assert.equal(list.tools.find(t => t.name === 'battle_observe').annotations.readOnlyHint, true);
   assert.equal(list.tools.find(t => t.name === 'battle_click').annotations.readOnlyHint, false);
   const sessions = await client.callTool({ name: 'battle_sessions', arguments: {} });
@@ -38,6 +38,17 @@ test('official MCP HTTP client discovers and calls the live panel bridge', async
   await f.post('/bridge/result', { ...connection, commandId: polled.command.id, result: { perspective: 'player', text: '我方回合', controls: [] } });
   const result = await call;
   assert.equal(result.structuredContent.text, '我方回合');
+  const gameCall = client.callTool({ name: 'battle_state', arguments: {} });
+  for (let i = 0; i < 40; i++) {
+    polled = await (await f.post('/bridge/poll', connection)).json();
+    if (polled.command) break;
+    await new Promise(r => setTimeout(r, 5));
+  }
+  assert.equal(polled.command.operation, 'game_state');
+  await f.post('/bridge/result', { ...connection, commandId: polled.command.id, result: { stateId: 'state', phase: 'battle' } });
+  assert.equal((await gameCall).structuredContent.stateId, 'state');
+  f.broker.connect('second');
+  assert.equal((await client.callTool({ name: 'battle_state', arguments: {} })).isError, true);
   const bad = await client.callTool({ name: 'battle_key', arguments: { ...connection, viewId: 'v', controlId: 'c', key: 'eval' } });
   assert.equal(bad.isError, true);
   await client.close();

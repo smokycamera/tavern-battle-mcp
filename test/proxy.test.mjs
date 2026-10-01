@@ -14,7 +14,7 @@ test('stdio proxy discovers the same phone session and forwards tool calls to th
   try {
     await client.connect(new StdioClientTransport({command:process.execPath,args:[fileURLToPath(new URL('../stdio-proxy.mjs',import.meta.url))],
       env:{...process.env,TB_MCP_TOKEN:token,TB_MCP_URL:`http://127.0.0.1:${http.address().port}/mcp`},stderr:'pipe'}));
-    assert.equal((await client.listTools()).tools.length,8);
+    assert.equal((await client.listTools()).tools.length,16);
     const sessions=await client.callTool({name:'battle_sessions',arguments:{}});
     assert.equal(sessions.structuredContent.sessions[0].sessionId,sessionId);
     const result=client.callTool({name:'battle_observe',arguments:{sessionId}});

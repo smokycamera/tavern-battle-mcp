@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { McpPlayerUi, type McpCommand } from './mcp-ui.js';
 import { McpPanelBridge } from './mcp-bridge.js';
 
-afterEach(() => { document.body.innerHTML = ''; vi.unstubAllGlobals(); });
+afterEach(() => { document.body.innerHTML = ''; vi.unstubAllGlobals(); vi.useRealTimers(); });
 function fixture(html: string) {
   document.body.innerHTML = `<div id="app">${html}</div><div id="toast"></div>`;
   let context = 'chat-a', busy = false;
@@ -64,4 +64,14 @@ it('allows pausing auto battle while busy and never starts network activity unti
   const request = vi.fn(); vi.stubGlobal('fetch', request);
   const bridge = new McpPanelBridge(f.options, () => {}); const stop = bridge.install();
   expect(bridge.render()).toContain('默认关闭'); expect(request).not.toHaveBeenCalled(); stop(); expect(request).not.toHaveBeenCalled();
+});
+it('returns immediately after enabling full auto even while the battle remains busy', async () => {
+  vi.useFakeTimers();
+  const f = fixture('<label>自动<input type="checkbox" data-role="full-auto-battle"></label>');
+  document.querySelector('input')!.addEventListener('change', () => f.busy(true));
+  let result: Record<string, unknown> | undefined;
+  const call = f.action('fill', '自动', { value: true }).then(value => { result = value; });
+  await vi.advanceTimersByTimeAsync(40);
+  expect(result).toMatchObject({ dispatched: true, busy: true });
+  await call;
 });

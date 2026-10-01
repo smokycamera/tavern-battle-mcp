@@ -13,7 +13,7 @@ test('official stdio client initializes a separate server process with clean pro
   const client = new Client({name:'stdio-test',version:'1'});
   try {
     await client.connect(transport);
-    assert.equal((await client.listTools()).tools.length,8);
+    assert.equal((await client.listTools()).tools.length,16);
     const result=await client.callTool({name:'battle_sessions',arguments:{}});
     assert.deepEqual(result.structuredContent,{sessions:[]});
   } finally { await client.close(); }

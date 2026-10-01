@@ -12,8 +12,8 @@ async function main() {
   if (!token || token.length < 24) throw Error('Set TB_MCP_TOKEN to the running bridge token');
   const url = new URL(process.env.TB_MCP_URL || 'http://127.0.0.1:8766/mcp');
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw Error('Invalid TB_MCP_URL');
-  const client = new Client({ name: 'tavern-battle-stdio-proxy', version: '0.1.0' });
-  const server = new Server({ name: 'tavern-battle', version: '0.1.0' }, { capabilities: { tools: {} }, instructions });
+  const client = new Client({ name: 'tavern-battle-stdio-proxy', version: '0.2.0' });
+  const server = new Server({ name: 'tavern-battle', version: '0.2.0' }, { capabilities: { tools: {} }, instructions });
   let closing = false;
   const close = async () => { if (closing) return; closing = true; await Promise.allSettled([client.close(), server.close()]); };
   try {
